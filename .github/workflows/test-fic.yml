@@ -1,0 +1,50 @@
+ name: Test app-only FIC
+ on:
+   workflow_dispatch:
+ 
+ permissions:
+   id-token: write
+ 
+ jobs:
+   test:
+     runs-on: ubuntu-latest
+     env:
+       TENANT_ID: 70a036f6-8e4d-4615-bad6-149c02e7720d
+       CLIENT_ID: 2e6f9e77-8671-49dc-9920-ededdca9e5fa
+       TOKEN_SCOPE: api://85b43794-d533-407f-8512-3fb78763bae5/.default
+     steps:
+       - uses: actions/github-script@v8
+         with:
+           script: |
+             const assertion = await core.getIDToken('api://AzureADTokenExchange');
+             core.setSecret(assertion);
+             const correlationId = crypto.randomUUID();
+             core.info(`Correlation ID: ${correlationId}`);
+             const response = await fetch(
+               `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/token`,
+               {
+                 method: 'POST',
+                 headers: {
+                   'Content-Type': 'application/x-www-form-urlencoded',
+                   'client-request-id': correlationId
+                 },
+                 body: new URLSearchParams({
+                   grant_type: 'client_credentials',
+                   client_id: process.env.CLIENT_ID,
+                   scope: process.env.TOKEN_SCOPE,
+                   client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+                   client_assertion: assertion
+                 })
+               }
+             );
+             const result = await response.json();
+             if (!response.ok) {
+               core.setFailed(`HTTP ${response.status}: ${result.error}: ${result.error_description}`);
+               return;
+             }
+             if (!result.access_token) {
+               core.setFailed('Response did not contain an access token.');
+               return;
+             }
+             core.setSecret(result.access_token);
+             core.info(`App-only token acquired; expires in ${result.expires_in} seconds.`);
